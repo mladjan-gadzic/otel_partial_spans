@@ -1,0 +1,122 @@
+config:
+    connectors:
+      forward/logs-coralogix: {}
+      forward/logs-elk: {}
+      forward/spanmetrics: {}
+      forward/traces: {}
+      routing/logs-elk:
+        default_pipelines:
+          - logs/elk9-vgis
+        match_once: true
+        table:
+          - pipelines:
+              - logs/elk9-d-vgis
+            statement: >-
+              route() where attributes["telemetry.logs.elk_cluster"] == "elk9"
+              and attributes["telemetry.environment.name"] == "dev" and
+              attributes["telemetry.collector.cloud.region"] == "vgis"
+          - pipelines:
+              - logs/elk9-vgis
+            statement: >-
+              route() where attributes["telemetry.logs.elk_cluster"] == "elk9"
+              and attributes["telemetry.collector.cloud.region"] == "vgis"
+          - pipelines:
+              - logs/elk9-diva
+            statement: >-
+              route() where attributes["telemetry.logs.elk_cluster"] == "elk9"
+              and attributes["telemetry.collector.cloud.region"] == "diva"
+    exporters:
+      otlp/vector-elk9-d-vgis:
+        endpoint: vector.elk9.ospr-elk-d.vgis.c3.zone:4317
+      otlp/vector-elk9-diva:
+        endpoint: logstash-diva-elk9.c3.zone:4317
+      otlp/vector-elk9-vgis:
+        endpoint: logstash-vgis-elk9.c3.zone:4317
+    extensions:
+      health_check:
+        endpoint: ${K8S_POD_IP}:13133
+      memory_ballast:
+        size_in_percentage: 10
+    processors:
+      batch:
+        send_batch_max_size: 2048
+        send_batch_size: 1024
+        timeout: 1s
+      filter/allow-up-to-gold:
+        error_mode: ignore
+        logs:
+          log_record:
+            - >-
+              resource.attributes["telemetry.gr.confidentiality"] != "bronze"
+              and resource.attributes["telemetry.gr.confidentiality"] !=
+              "silver" and resource.attributes["telemetry.gr.confidentiality"]
+              != "gold"
+      filter/log-requirements-elk:
+        error_mode: ignore
+        logs:
+          log_record:
+            - resource.attributes["telemetry.logs.elk_project"] == nil
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 90
+        spike_limit_percentage: 20
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: ${K8S_POD_IP}:4317
+            keepalive:
+              enforcement_policy:
+                min_time: 10m
+                permit_without_stream: true
+              server_parameters:
+                time: 20s
+                timeout: 60s
+          http:
+            endpoint: ${K8S_POD_IP}:4318
+    service:
+      extensions:
+        - health_check
+        - memory_ballast
+      pipelines:
+        logs:
+          exporters:
+            - forward/logs-elk
+            - forward/logs-coralogix
+          processors:
+            - memory_limiter
+            - resource/telemetry
+            - batch
+          receivers:
+            - otlp
+        logs/elk:
+          exporters:
+            - routing/logs-elk
+          processors:
+            - filter/log-requirements-elk
+          receivers:
+            - forward/logs-elk
+        logs/elk9-d-vgis:
+          exporters:
+            - otlp/vector-elk9-d-vgis
+          processors:
+            - filter/allow-up-to-gold
+            - batch
+          receivers:
+            - routing/logs-elk
+        logs/elk9-diva:
+          exporters:
+            - otlp/vector-elk9-diva
+          processors:
+            - filter/allow-up-to-gold
+            - batch
+          receivers:
+            - routing/logs-elk
+        logs/elk9-vgis:
+          exporters:
+            - otlp/vector-elk9-vgis
+          processors:
+            - filter/allow-up-to-gold
+            - batch
+          receivers:
+            - routing/logs-elk
