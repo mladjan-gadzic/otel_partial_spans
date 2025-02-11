@@ -28,5 +28,10 @@ tracer = trace.get_tracer(__name__)
 # Start a span (logs heartbeat and stop events)
 with tracer.start_as_current_span("partial_span_1"):
   print("partial_span_1 is running")
+  with tracer.start_as_current_span("partial_span_2"):
+    print("partial_span_2 is running")
+    with tracer.start_as_current_span("partial_span_3"):
+      print("partial_span_3 is running")
+      time.sleep(150)
 
 provider.shutdown()
